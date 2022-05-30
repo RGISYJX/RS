@@ -1,0 +1,23 @@
+
+var class_11 = validation.filter(ee.Filter.eq('landcover',0)).filter(ee.Filter.eq('prediction',0)).size();
+var class_12 = validation.filter(ee.Filter.eq('landcover',0)).filter(ee.Filter.eq('prediction',1)).size();
+var class_13 = validation.filter(ee.Filter.eq('landcover',0)).filter(ee.Filter.eq('prediction',2)).size();
+var class_14 = validation.filter(ee.Filter.eq('landcover',0)).filter(ee.Filter.eq('prediction',3)).size();
+
+var class_21 = validation.filter(ee.Filter.eq('landcover',1)).filter(ee.Filter.eq('prediction',0)).size();
+var class_22 = validation.filter(ee.Filter.eq('landcover',1)).filter(ee.Filter.eq('prediction',1)).size();
+var class_23 = validation.filter(ee.Filter.eq('landcover',1)).filter(ee.Filter.eq('prediction',2)).size();
+var class_24 = validation.filter(ee.Filter.eq('landcover',1)).filter(ee.Filter.eq('prediction',3)).size();
+
+var class_31 = validation.filter(ee.Filter.eq('landcover',2)).filter(ee.Filter.eq('prediction',0)).size();
+var class_32 = validation.filter(ee.Filter.eq('landcover',2)).filter(ee.Filter.eq('prediction',1)).size();
+var class_33 = validation.filter(ee.Filter.eq('landcover',2)).filter(ee.Filter.eq('prediction',2)).size();
+var class_34 = validation.filter(ee.Filter.eq('landcover',2)).filter(ee.Filter.eq('prediction',3)).size();
+
+var class_41 = validation.filter(ee.Filter.eq('landcover',3)).filter(ee.Filter.eq('prediction',0)).size();
+var class_42 = validation.filter(ee.Filter.eq('landcover',3)).filter(ee.Filter.eq('prediction',1)).size();
+var class_43 = validation.filter(ee.Filter.eq('landcover',3)).filter(ee.Filter.eq('prediction',2)).size();
+var class_44 = validation.filter(ee.Filter.eq('landcover',3)).filter(ee.Filter.eq('prediction',3)).size();
+
+var confusion_array = ee.Array([[class_11,class_21,class_31,class_41],[class_12,class_22,class_32,class_42],[class_13,class_23,class_33,class_43],[class_14,class_24,class_34,class_44]]);
+var confusion_matrix = ee.ConfusionMatrix(confusion_array);
