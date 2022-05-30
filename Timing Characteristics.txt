@@ -1,0 +1,83 @@
+// Function to mask clouds using the Sentinel-2 QA band.
+function maskS2clouds(image) {
+  var qa = image.select('QA60')
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0).and(
+             qa.bitwiseAnd(cirrusBitMask).eq(0))
+
+  // Return the masked and scaled data, without the QA bands.
+  return image.updateMask(mask).divide(10000)
+      .select("B.*")
+      .copyProperties(image, ["system:time_start"])
+}
+function addIndices(image){
+  var ndvi = image.normalizedDifference(['B8', 'B4']).rename(['ndvi']);
+  var ndvire1 = image.normalizedDifference(['B8A', 'B5']).rename(['ndvire1']);
+  var ndvire2 = image.normalizedDifference(['B8A', 'B6']).rename(['ndvire2']);
+  var ndvire3 = image.normalizedDifference(['B8A', 'B7']).rename(['ndvire3']);
+  return image.addBands(ndvi.rename("NDVI")).addBands(ndvire1.rename("NDVIRE1")).addBands(ndvire2.rename("NDVIRE2")).addBands(ndvire3.rename("NDVIRE3"))
+
+}
+// 调用并筛选Sentinel-1影像
+var collection_S1=ee.ImageCollection('COPERNICUS/S1_GRD')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH'));
+var collection_S1_IW=collection_S1
+.filterBounds(region)
+.filterMetadata('instrumentMode','equals','IW')
+.filterDate('2021-07-01', '2021-08-31');
+var Sentinel_1=collection_S1_IW.median()
+var collection2 = ee.ImageCollection('COPERNICUS/S2')
+    .filterDate('2021-07-01', '2021-08-31')
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+    .map(maskS2clouds)
+var composite2= collection2
+                  .map(addIndices)
+                  .median();       
+print(composite2)
+//Choose bands to include and define feature collection to use
+var subset = composite2.select('B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B10','B11','B12','NDVI','NDVIRE1','NDVIRE2','NDVIRE3')
+var samples = /*Crop types*/;
+// Create the scatter chart
+var Chart1 = ui.Chart.image.regions(
+    subset, samples, ee.Reducer.mean(), 10, 'label')
+        .setChartType('ScatterChart');
+print(Chart1);
+// Define customization options.
+var plotOptions = {
+  title: 'Sentinel_2  Surface reflectance spectra',
+  hAxis: {title: 'Wavelength (nanometers)'},
+  vAxis: {title: 'Reflectance'},
+  lineWidth: 1,
+  pointSize: 4,
+  series: {
+    0: {color: 'blue'}, 
+    1: {color: 'green'}, 
+    2: {color: 'red'},
+    3: {color: 'black'}, 
+    }};
+var subset1 = Sentinel_1.select('VV','VH')
+var samples1 = /*Crop types*/;
+// Create the scatter chart
+var Chart2 = ui.Chart.image.regions(
+    subset1, samples1, ee.Reducer.mean(), 10, 'label')
+        .setChartType('ScatterChart');
+print(Chart2);
+// Define customization options.
+var plotOptions1 = {
+  title: 'Sentinel_1  Surface reflectance spectra',
+  hAxis: {title: 'Wavelength (nanometers)'},
+  vAxis: {title: 'Reflectance'},
+  lineWidth: 1,
+  pointSize: 4,
+  series: {
+    0: {color: 'blue'}, 
+    1: {color: 'green'}, 
+    2: {color: 'red'},
+    3: {color: 'black'}, 
+    }};

@@ -1,0 +1,132 @@
+import ee
+ee.Authenticate()
+ee.Initialize()
+region=ee.Geometry.Polygon(
+        [[[97.75951502015543, 36.07885552317394],
+          [97.75951502015543, 36.03734457776351],
+          [97.80537006547404, 36.03734457776351],
+          [97.80537006547404, 36.07885552317394]]])
+# Use Landsat 8 surface reflectance data for predictors.
+S2 = ee.ImageCollection('COPERNICUS/S2')
+# Cloud masking function.
+def maskS2clouds(image):
+  qa = image.select('QA60')
+  # Bits 10 and 11 are clouds and cirrus, respectively.
+  cloudBitMask = 1 << 10
+  cirrusBitMask = 1 << 11
+  # Both flags should be set to zero, indicating clear conditions.
+  mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(
+             qa.bitwiseAnd(cirrusBitMask).eq(0))
+  # Return the masked and scaled data, without the QA bands.
+  return image.updateMask(mask).divide(10000) \
+      .select("B.*") \
+      .copyProperties(image, ["system:time_start"])
+# The image input data is a 2018 cloud-masked median composite.
+collection2 = ee.ImageCollection('COPERNICUS/S2') \
+    .filterDate('2021-07-01', '2021-08-31') \
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
+    .map(maskS2clouds)
+
+def addIndices(image):
+  ndvi = image.normalizedDifference(['B8', 'B4']).rename(['ndvi'])
+  ndvire1 = image.normalizedDifference(['B8A', 'B5']).rename(['ndvire1'])
+  ndvire2 = image.normalizedDifference(['B8A', 'B6']).rename(['ndvire2'])
+  ndvire3 = image.normalizedDifference(['B8A', 'B7']).rename(['ndvire3'])
+  return image.addBands(ndvi.rename("NDVI")).addBands(ndvire1.rename("NDVIRE1")).addBands(ndvire2.rename("NDVIRE2")).addBands(ndvire3.rename("NDVIRE3"))
+
+composite2= collection2 \
+                  .map(addIndices) \
+                  .median()
+# print(composite2,'composite2')
+
+
+
+collection_S1=ee.ImageCollection('COPERNICUS/S1_GRD') \
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV')) \
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH'))
+collection_S1_IW=collection_S1 \
+.filterBounds(region) \
+.filterMetadata('instrumentMode','equals','IW') \
+.filterDate('2021-07-01', '2021-08-31')
+# print(collection_S1_IW,'collection_S1_IW')
+Sentinel_1 =collection_S1_IW.median()
+data=ee.Image.cat([Sentinel_1,composite2.clip(region)]).float().clip(region)\
+                  .select(['B1','B2','B3','B4','B5','B6','B8','B7','B11','B8A','B9','B10','B12','VV','VH','NDVI','NDVIRE1','NDVIRE2','NDVIRE3'])
+Map.addLayer(composite2.clip(region), {'bands': ['B4',  'B3',  'B2'], 'min': 0, 'max': 0.3}, 'RGB2')
+Map.centerObject(region,13)
+Map
+
+seeds = ee.Algorithms.Image.Segmentation.seedGrid(13)
+
+snic = ee.Algorithms.Image.Segmentation.SNIC(**{
+  'image': data,
+  'size':1,
+  'compactness': 0,
+  'connectivity': 8,
+  'neighborhoodSize': 256,
+  'seeds': seeds
+})
+clusters_snic = snic.select("clusters")
+
+vectors = clusters_snic.reduceToVectors(**{
+  'geometryType': 'polygon',
+  'reducer': ee.Reducer.countEvery(),
+  'scale': 10,
+  'maxPixels': 1e13,
+  'geometry': region,
+  'tileScale': 16
+})
+empty = ee.Image().byte()
+outline = empty.paint(**{
+  'featureCollection': vectors,
+  'color': 1,
+  'width': 1
+})
+Map.addLayer(outline.clip(region), {'palette': 'FF0000'}, 'segments')
+
+points = ee.FeatureCollection('users/20656YJX/JYBPoints')
+objectPropertiesImage = ee.Image.cat([
+  snic.select(['B2_mean','B3_mean','B4_mean','B5_mean','B6_mean','B7_mean','B8_mean','B8A_mean','B9_mean','B10_mean','B11_mean','B12_mean','B1_mean','VV_mean','VH_mean','NDVI_mean','NDVIRE1_mean','NDVIRE2_mean','NDVIRE3_mean'])
+]).float();
+
+bands = ['B2_mean','B3_mean','B4_mean','B5_mean','B6_mean','B7_mean','B8_mean','B8A_mean','B9_mean','B10_mean','B11_mean','B12_mean','B1_mean','VV_mean','VH_mean','NDVI_mean','NDVIRE1_mean','NDVIRE2_mean','NDVIRE3_mean']
+# sample = snic.select(bands).sampleRegions(**{
+#   'collection': points,
+#   'properties': [label],
+#   'scale': 10
+# })
+
+# Adds a column of deterministic pseudorandom numbers. 
+sample = points.randomColumn()
+
+split = 0.7
+
+sample_training = sample.filter(ee.Filter.lt('random', split))
+sample_validation = sample.filter(ee.Filter.gte('random', split))
+label = 'landcover'
+training = objectPropertiesImage.sampleRegions(**{
+  'collection': sample_training,
+  'properties': [label],
+  'scale': 10,
+  'tileScale':8
+});
+classifier = ee.Classifier.smileCart().train(training, 'landcover');
+
+result=objectPropertiesImage.classify(classifier,'Classified objects');
+validate = objectPropertiesImage.sampleRegions(**{
+  'collection': sample_validation,
+  'properties': [label],
+  'scale': 10,
+  'tileScale':8
+});
+
+test=validate.classify(classifier,'classification');
+testAccuracy = test.errorMatrix('landcover', 'classification');
+accuracy = testAccuracy.accuracy();
+userAccuracy = testAccuracy.consumersAccuracy();
+producersAccuracy = testAccuracy.producersAccuracy();
+kappa = testAccuracy.kappa();
+userAccuracy.getInfo()
+producersAccuracy.getInfo()
+accuracy.getInfo()
+kappa.getInfo()
